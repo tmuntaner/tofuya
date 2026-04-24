@@ -1,0 +1,6 @@
+[[state_groups]]
+name = "tofuya-main"
+base_address = "https://gitlab.home.arpa/api/v4/projects/42/terraform/state/"
+states = ["foo", "bar", "https://"]
+state_type = "opentofu"
+dir = "testdata/tofuya_pipeline"
