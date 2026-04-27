@@ -34,7 +34,7 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn parse(config_dir: Option<PathBuf>, path: Option<String>) -> Result<Self, ConfigError> {
+    pub fn new(config_dir: Option<PathBuf>, path: Option<String>) -> Result<Self, ConfigError> {
         let config_file = path
             .map(|path| PathBuf::from(path.as_str()))
             .unwrap_or_else(|| {
@@ -79,7 +79,7 @@ pub mod tests {
             .join("testdata")
             .join("config");
 
-        let config = Config::parse(Some(config_dir), None).unwrap();
+        let config = Config::new(Some(config_dir), None).unwrap();
         assert_eq!(config.hosts.len(), 1);
         assert_eq!(config.hosts[0]._type, StateHostType::Gitlab);
         assert_eq!(config.hosts[0].host, "gitlab.home.arpa");
@@ -97,7 +97,7 @@ pub mod tests {
             .join("testdata")
             .join("non_existing_config");
 
-        let config = Config::parse(Some(config_dir), None).unwrap();
+        let config = Config::new(Some(config_dir), None).unwrap();
         assert_eq!(config.hosts.len(), 0);
     }
 
@@ -108,7 +108,7 @@ pub mod tests {
             .join("testdata")
             .join("config");
 
-        let config = Config::parse(Some(config_dir), None).unwrap();
+        let config = Config::new(Some(config_dir), None).unwrap();
         let host = config.get_state_host(Url::parse("https://gitlab.home.arpa").unwrap());
         assert_eq!(true, host.is_some());
     }
@@ -120,7 +120,7 @@ pub mod tests {
             .join("testdata")
             .join("config");
 
-        let config = Config::parse(Some(config_dir), None).unwrap();
+        let config = Config::new(Some(config_dir), None).unwrap();
         let host = config.get_state_host(Url::parse("https://gitlab-404.home.arpa").unwrap());
         assert_eq!(true, host.is_none());
     }

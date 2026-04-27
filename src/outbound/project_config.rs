@@ -1,56 +1,11 @@
-use crate::domain::tofu::{Group, GroupState, StateTarget, StateType};
+use crate::domain::tofu::models::{Group, GroupState, StateTarget, StateType};
+use crate::domain::tofu::ports::{
+    ProjectConfigError, ProjectConfigPort, ProjectGetTargetError, StateAddressError,
+};
 use serde::Deserialize;
 use std::fs;
 use std::path::PathBuf;
-use thiserror::Error;
 use url::Url;
-
-#[derive(Error, Debug)]
-pub enum ProjectConfigError {
-    #[error(transparent)]
-    FSError(#[from] std::io::Error),
-    #[error(transparent)]
-    SerdeError(#[from] toml::de::Error),
-}
-
-#[derive(Error, Debug)]
-pub enum StateAddressError {
-    #[error(transparent)]
-    ParseError(#[from] url::ParseError),
-}
-
-#[derive(Error, Debug)]
-pub enum ProjectGetTargetError {
-    #[error("address not found")]
-    AddressNotFound,
-    #[error(transparent)]
-    ParseError(#[from] StateAddressError),
-}
-
-#[derive(Deserialize, Clone, Default)]
-pub struct StateGroup {
-    pub name: String,
-    pub base_address: String,
-    pub states: Vec<String>,
-    pub ext_state_command: Option<String>,
-    pub state_type: StateType,
-    pub dir: Option<String>,
-}
-
-impl StateGroup {
-    fn state_address(&self, state: String) -> Result<Option<Url>, StateAddressError> {
-        let base_address = Url::parse(self.base_address.as_str())?;
-        let state = self.states.iter().find(|s| state.eq(s.to_owned()));
-        match state {
-            None => Ok(None),
-            Some(state) => {
-                let url = base_address.join(state)?;
-
-                Ok(Some(url))
-            }
-        }
-    }
-}
 
 #[derive(Deserialize, Clone, Default)]
 pub struct ProjectConfig {
@@ -58,7 +13,7 @@ pub struct ProjectConfig {
 }
 
 impl ProjectConfig {
-    pub fn parse(path: PathBuf) -> Result<Self, ProjectConfigError> {
+    pub fn new(path: PathBuf) -> Result<Self, ProjectConfigError> {
         if !path.exists() {
             return Ok(Default::default());
         }
@@ -68,8 +23,10 @@ impl ProjectConfig {
 
         Ok(config)
     }
+}
 
-    pub fn list(&self) -> Vec<Group> {
+impl ProjectConfigPort for ProjectConfig {
+    fn list(&self) -> Vec<Group> {
         self.state_groups
             .iter()
             .map(|group| {
@@ -95,29 +52,8 @@ impl ProjectConfig {
             })
             .collect()
     }
-    pub fn state_from_address(&self, target_group: String, address: String) -> Option<String> {
-        let state_group = self.state_groups.iter().find(|state_group| {
-            let name = state_group.name.to_string();
-            target_group.eq(&name)
-        })?;
 
-        for state in state_group.states.clone() {
-            if let Ok(state_address) = state_group.state_address(state.clone()) {
-                match state_address {
-                    None => {}
-                    Some(state_address) => {
-                        if state_address.to_string().eq(&address) {
-                            return Some(state);
-                        }
-                    }
-                }
-            }
-        }
-
-        None
-    }
-
-    pub fn get_target(
+    fn get_target(
         &self,
         target_group: String,
         target_state: String,
@@ -157,6 +93,48 @@ impl ProjectConfig {
 
         Ok(None)
     }
+
+    fn state_from_address(&self, target_group: String, address: String) -> Option<String> {
+        let state_group = self.state_groups.iter().find(|state_group| {
+            let name = state_group.name.to_string();
+            target_group.eq(&name)
+        })?;
+
+        for state in state_group.states.clone() {
+            if let Ok(Some(state_address)) = state_group.state_address(state.clone())
+                && state_address.to_string().eq(&address)
+            {
+                return Some(state);
+            }
+        }
+
+        None
+    }
+}
+
+#[derive(Deserialize, Clone, Default)]
+struct StateGroup {
+    pub name: String,
+    pub base_address: String,
+    pub states: Vec<String>,
+    // pub ext_state_command: Option<String>,
+    pub state_type: StateType,
+    pub dir: Option<String>,
+}
+
+impl StateGroup {
+    fn state_address(&self, state: String) -> Result<Option<Url>, StateAddressError> {
+        let base_address = Url::parse(self.base_address.as_str())?;
+        let state = self.states.iter().find(|s| state.eq(s.to_owned()));
+        match state {
+            None => Ok(None),
+            Some(state) => {
+                let url = base_address.join(state)?;
+
+                Ok(Some(url))
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -171,7 +149,7 @@ pub mod tests {
             .join("project_configs")
             .join(".tofuya.toml");
 
-        let config = ProjectConfig::parse(config_dir).unwrap();
+        let config = ProjectConfig::new(config_dir).unwrap();
         assert_eq!(config.state_groups.len(), 1);
     }
 
@@ -183,7 +161,7 @@ pub mod tests {
             .join("project_configs")
             .join(".tofuya-missing.toml");
 
-        let config = ProjectConfig::parse(config_dir).unwrap();
+        let config = ProjectConfig::new(config_dir).unwrap();
         assert_eq!(config.state_groups.len(), 0);
     }
 
@@ -195,7 +173,7 @@ pub mod tests {
             .join("project_configs")
             .join(".tofuya.toml");
 
-        let config = ProjectConfig::parse(config_dir).unwrap();
+        let config = ProjectConfig::new(config_dir).unwrap();
         let target = config
             .get_target(String::from("tofuya-main"), String::from("bar"))
             .unwrap()
@@ -216,7 +194,7 @@ pub mod tests {
             .join("project_configs")
             .join(".tofuya.toml");
 
-        let config = ProjectConfig::parse(config_dir).unwrap();
+        let config = ProjectConfig::new(config_dir).unwrap();
         let target = config.get_target(String::from("tofuya-main"), String::from("https://"));
         assert_eq!(true, target.is_err());
     }
@@ -245,7 +223,7 @@ pub mod tests {
             .join("project_configs")
             .join(".tofuya-missing.toml");
 
-        let config = ProjectConfig::parse(config_dir).unwrap();
+        let config = ProjectConfig::new(config_dir).unwrap();
         assert_eq!(0, config.state_groups.len());
         let target = config
             .get_target(String::from("tofuya-main"), String::from("foo"))
@@ -261,7 +239,7 @@ pub mod tests {
             .join("project_configs")
             .join(".tofuya.toml");
 
-        let config = ProjectConfig::parse(config_dir).unwrap();
+        let config = ProjectConfig::new(config_dir).unwrap();
         assert_eq!(1, config.state_groups.len());
         let target = config
             .get_target(String::from("tofuya-main"), String::from("foobar"))
