@@ -1,61 +1,53 @@
 use crate::core::config::{Config, StateHostType};
-use crate::outbound::project_config::{ProjectConfig, ProjectGetTargetError};
-use crate::outbound::tfstate::{TFStateAdapter, TFStateParseError};
-use crate::outbound::tofu_cli::{CleanParams, InitGitlabParams, TofuCli, TofuCliError};
+use crate::domain::tofu::models::{Group, GroupStatus};
+use crate::domain::tofu::ports::{
+    CLIPort, CleanParams, InitGitlabParams, ProjectConfigPort, ProjectGetTargetError,
+    TFStateParseError, TFStatePort, TofuCliError,
+};
 use async_trait::async_trait;
 use mockall::automock;
-use serde::Deserialize;
-use std::path::PathBuf;
 use std::process::Command;
+use std::sync::Arc;
 use thiserror::Error;
-use url::Url;
 
 #[async_trait]
 #[automock]
-pub trait TofuPort: Send + Sync {
+pub trait TofuService: Send + Sync {
     async fn init(&self, params: InitParams) -> Result<(), ServiceInitError>;
     async fn list(&self) -> Result<Vec<Group>, ServiceListError>;
     async fn clean(&self) -> Result<(), ServiceCleanError>;
     async fn status(&self) -> Result<Vec<GroupStatus>, ServiceStatusError>;
 }
 
-pub struct Service {
+pub struct Service<CLI, PROJECT, STATE>
+where
+    CLI: CLIPort + Send + Sync + 'static,
+    PROJECT: ProjectConfigPort + Send + Sync + 'static,
+    STATE: TFStatePort + Send + Sync + 'static,
+{
     base_config: Config,
-    project_config: ProjectConfig,
-    tofu_cli: TofuCli,
-    tf_state: TFStateAdapter,
+    project_config: Arc<PROJECT>,
+    tofu_cli: Arc<CLI>,
+    tf_state: Arc<STATE>,
 }
 
-impl Service {
+impl<CLI, PROJECT, STATE> Service<CLI, PROJECT, STATE>
+where
+    CLI: CLIPort + Send + Sync + 'static,
+    PROJECT: ProjectConfigPort + Send + Sync + 'static,
+    STATE: TFStatePort + Send + Sync + 'static,
+{
     pub fn new(
         base_config: Config,
-        project_config: ProjectConfig,
-        tofu_cli: TofuCli,
-        tf_state: TFStateAdapter,
+        project_config: PROJECT,
+        tofu_cli: CLI,
+        tf_state: STATE,
     ) -> Self {
         Self {
             base_config,
-            project_config,
-            tofu_cli,
-            tf_state,
-        }
-    }
-}
-
-#[derive(Deserialize, Clone, Default, Debug, PartialEq)]
-pub enum StateType {
-    #[default]
-    #[serde(rename = "opentofu")]
-    OpenTofu,
-    #[serde(rename = "terraform")]
-    Terraform,
-}
-
-impl StateType {
-    pub fn binary_name(&self) -> String {
-        match &self {
-            StateType::OpenTofu => String::from("tofu"),
-            StateType::Terraform => String::from("terraform"),
+            project_config: Arc::new(project_config),
+            tofu_cli: Arc::new(tofu_cli),
+            tf_state: Arc::new(tf_state),
         }
     }
 }
@@ -66,7 +58,12 @@ pub struct InitParams {
 }
 
 #[async_trait]
-impl TofuPort for Service {
+impl<CLI, PROJECT, STATE> TofuService for Service<CLI, PROJECT, STATE>
+where
+    CLI: CLIPort + Send + Sync + 'static,
+    PROJECT: ProjectConfigPort + Send + Sync + 'static,
+    STATE: TFStatePort + Send + Sync + 'static,
+{
     async fn init(&self, params: InitParams) -> Result<(), ServiceInitError> {
         let target = self
             .project_config
@@ -150,32 +147,6 @@ impl TofuPort for Service {
 
         Ok(statuses)
     }
-}
-
-#[derive(Deserialize, Clone)]
-pub struct GroupStatus {
-    pub name: String,
-    pub state: Option<String>,
-    pub address: Option<String>,
-}
-
-#[derive(Deserialize, Clone)]
-pub struct StateTarget {
-    pub url: Url,
-    pub state_type: StateType,
-    pub dir: PathBuf,
-}
-
-#[derive(Deserialize, Clone)]
-pub struct GroupState {
-    pub name: String,
-}
-
-#[derive(Deserialize, Clone)]
-pub struct Group {
-    pub name: String,
-    pub states: Vec<GroupState>,
-    pub dir: PathBuf,
 }
 
 #[derive(Debug, Error)]

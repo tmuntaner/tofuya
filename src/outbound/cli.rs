@@ -1,19 +1,18 @@
-use crate::domain::tofu::StateType;
+use crate::domain::tofu::ports::{CLIPort, CleanParams, InitGitlabParams, TofuCliError};
 use serde::Deserialize;
-use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use thiserror::Error;
-use url::Url;
 
 #[derive(Deserialize, Clone, Default)]
-pub struct TofuCli {}
+pub struct CLI {}
 
-impl TofuCli {
+impl CLI {
     pub fn new() -> Self {
         Self {}
     }
+}
 
-    pub fn clean(&self, params: CleanParams) -> Result<(), TofuCliError> {
+impl CLIPort for CLI {
+    fn clean(&self, params: CleanParams) -> Result<(), TofuCliError> {
         let mut child = Command::new("rm")
             .current_dir(params.tf_root)
             .arg("-rf")
@@ -25,7 +24,7 @@ impl TofuCli {
         Ok(())
     }
 
-    pub fn init_gitlab(&self, params: InitGitlabParams) -> Result<(), TofuCliError> {
+    fn init_gitlab(&self, params: InitGitlabParams) -> Result<(), TofuCliError> {
         let mut child = Command::new(params.state_type.binary_name())
             .current_dir(params.tf_root)
             .arg("init")
@@ -48,22 +47,4 @@ impl TofuCli {
 
         Ok(())
     }
-}
-
-pub struct CleanParams {
-    pub tf_root: PathBuf,
-}
-
-pub struct InitGitlabParams {
-    pub state_type: StateType,
-    pub tf_root: PathBuf,
-    pub url: Url,
-    pub username: String,
-    pub access_token: String,
-}
-
-#[derive(Debug, Error)]
-pub enum TofuCliError {
-    #[error(transparent)]
-    CommandError(#[from] std::io::Error),
 }

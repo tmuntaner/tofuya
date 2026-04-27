@@ -3,11 +3,11 @@ use clap::{Parser, Subcommand};
 use dirs::config_dir;
 use std::process::exit;
 use tofuya::core::config::Config;
-use tofuya::domain::tofu::Service;
+use tofuya::domain::tofu::service::Service;
 use tofuya::inbound::cli::CliHandler;
+use tofuya::outbound::cli::CLI;
 use tofuya::outbound::project_config::ProjectConfig;
 use tofuya::outbound::tfstate::TFStateAdapter;
-use tofuya::outbound::tofu_cli::TofuCli;
 use tracing::error;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -55,9 +55,9 @@ async fn start(cli: Cli) -> anyhow::Result<(), anyhow::Error> {
     let project_config_path = current_dir.join(".tofuya.toml");
 
     // configuration objects
-    let base_config = Config::parse(config_dir, cli.config_path)?;
-    let project_config = ProjectConfig::parse(project_config_path)?;
-    let tofu_cli = TofuCli::new();
+    let base_config = Config::new(config_dir, cli.config_path)?;
+    let project_config = ProjectConfig::new(project_config_path)?;
+    let tofu_cli = CLI::new();
     let tf_state = TFStateAdapter::new();
 
     // services

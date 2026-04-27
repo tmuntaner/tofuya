@@ -1,13 +1,17 @@
-use crate::domain::tofu::{
-    InitParams, Service, ServiceCleanError, ServiceInitError, ServiceListError, ServiceStatusError,
-    TofuPort,
+use crate::domain::tofu::service::{
+    InitParams, ServiceCleanError, ServiceInitError, ServiceListError, ServiceStatusError,
+    TofuService,
 };
 use comfy_table::presets::NOTHING;
 use comfy_table::{Cell, Color, Table};
+use std::sync::Arc;
 use thiserror::Error;
 
-pub struct CliHandler {
-    tofu_service: Service,
+pub struct CliHandler<TOFU>
+where
+    TOFU: TofuService + Send + Sync + 'static,
+{
+    tofu_service: Arc<TOFU>,
 }
 
 #[derive(Debug, Error)]
@@ -25,9 +29,14 @@ pub enum CliError {
     StatusError(#[from] ServiceStatusError),
 }
 
-impl CliHandler {
-    pub fn new(tofu_service: Service) -> Self {
-        Self { tofu_service }
+impl<TOFU> CliHandler<TOFU>
+where
+    TOFU: TofuService + Send + Sync + 'static,
+{
+    pub fn new(tofu_service: TOFU) -> Self {
+        Self {
+            tofu_service: Arc::new(tofu_service),
+        }
     }
 
     pub async fn init(&self, group: String, state: String) -> Result<(), CliError> {

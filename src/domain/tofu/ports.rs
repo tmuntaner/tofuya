@@ -1,0 +1,103 @@
+use crate::domain::tofu::models::{Group, StateTarget, StateType};
+use async_trait::async_trait;
+use mockall::automock;
+use serde::Deserialize;
+use std::path::PathBuf;
+use thiserror::Error;
+use url::Url;
+
+#[async_trait]
+#[automock]
+pub trait CLIPort: Send + Sync {
+    fn clean(&self, params: CleanParams) -> Result<(), TofuCliError>;
+
+    fn init_gitlab(&self, params: InitGitlabParams) -> Result<(), TofuCliError>;
+}
+
+pub struct CleanParams {
+    pub tf_root: PathBuf,
+}
+
+pub struct InitGitlabParams {
+    pub state_type: StateType,
+    pub tf_root: PathBuf,
+    pub url: Url,
+    pub username: String,
+    pub access_token: String,
+}
+
+#[derive(Debug, Error)]
+pub enum TofuCliError {
+    #[error(transparent)]
+    CommandError(#[from] std::io::Error),
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Project Config
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#[async_trait]
+#[automock]
+pub trait ProjectConfigPort: Send + Sync {
+    fn list(&self) -> Vec<Group>;
+    fn get_target(
+        &self,
+        target_group: String,
+        target_state: String,
+    ) -> Result<Option<StateTarget>, ProjectGetTargetError>;
+    fn state_from_address(&self, target_group: String, address: String) -> Option<String>;
+}
+
+#[derive(Error, Debug)]
+pub enum ProjectConfigError {
+    #[error(transparent)]
+    FSError(#[from] std::io::Error),
+    #[error(transparent)]
+    SerdeError(#[from] toml::de::Error),
+}
+
+#[derive(Error, Debug)]
+pub enum StateAddressError {
+    #[error(transparent)]
+    ParseError(#[from] url::ParseError),
+}
+
+#[derive(Error, Debug)]
+pub enum ProjectGetTargetError {
+    #[error("address not found")]
+    AddressNotFound,
+    #[error(transparent)]
+    ParseError(#[from] StateAddressError),
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// TF State
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#[async_trait]
+#[automock]
+pub trait TFStatePort: Send + Sync {
+    fn parse(&self, tf_root: PathBuf) -> Result<Option<TFState>, TFStateParseError>;
+}
+
+#[derive(Deserialize, Clone, Default)]
+pub struct TFStateBackendConfig {
+    pub address: String,
+}
+
+#[derive(Deserialize, Clone, Default)]
+pub struct TFStateBackend {
+    pub config: TFStateBackendConfig,
+}
+#[derive(Deserialize, Clone, Default)]
+pub struct TFState {
+    pub backend: TFStateBackend,
+}
+
+#[derive(Error, Debug)]
+pub enum TFStateParseError {
+    #[error(transparent)]
+    FSError(#[from] std::io::Error),
+    #[error(transparent)]
+    SerdeError(#[from] serde_json::Error),
+}
