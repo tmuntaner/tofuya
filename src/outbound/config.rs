@@ -1,3 +1,5 @@
+use crate::domain::tofu::models::{ConfigStateHost, ConfigStateHostType};
+use crate::domain::tofu::ports::ConfigPort;
 use serde::Deserialize;
 use std::fs;
 use std::path::PathBuf;
@@ -19,18 +21,37 @@ pub enum StateHostType {
     Gitlab,
 }
 
+impl From<StateHostType> for ConfigStateHostType {
+    fn from(value: StateHostType) -> Self {
+        match value {
+            StateHostType::Gitlab => ConfigStateHostType::Gitlab,
+        }
+    }
+}
+
 #[derive(Deserialize, Clone, Default)]
-pub struct StateHost {
+struct StateHost {
     #[serde(rename = "type")]
-    pub _type: StateHostType,
-    pub host: String,
-    pub gitlab_username: Option<String>,
-    pub gitlab_access_token: Option<String>,
+    _type: StateHostType,
+    host: String,
+    gitlab_username: Option<String>,
+    gitlab_access_token: Option<String>,
+}
+
+impl From<StateHost> for ConfigStateHost {
+    fn from(value: StateHost) -> Self {
+        Self {
+            _type: value._type.into(),
+            host: value.host,
+            gitlab_username: value.gitlab_username,
+            gitlab_access_token: value.gitlab_access_token,
+        }
+    }
 }
 
 #[derive(Deserialize, Clone, Default)]
 pub struct Config {
-    pub hosts: Vec<StateHost>,
+    hosts: Vec<StateHost>,
 }
 
 impl Config {
@@ -54,13 +75,15 @@ impl Config {
 
         Ok(config)
     }
+}
 
-    pub fn get_state_host(&self, req: Url) -> Option<StateHost> {
+impl ConfigPort for Config {
+    fn get_state_host(&self, req: Url) -> Option<ConfigStateHost> {
         for host in &self.hosts {
             let domain = Host::Domain(host.host.as_str());
 
             if req.host() == Some(domain) {
-                return Some(host.clone());
+                return Some(host.clone().into());
             }
         }
 

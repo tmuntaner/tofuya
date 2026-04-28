@@ -1,10 +1,20 @@
-use crate::domain::tofu::models::{Group, StateTarget, StateType};
+use crate::domain::tofu::models::{ConfigStateHost, Group, StateTarget, StateType};
 use async_trait::async_trait;
 use mockall::automock;
 use serde::Deserialize;
 use std::path::PathBuf;
 use thiserror::Error;
 use url::Url;
+
+#[async_trait]
+#[automock]
+pub trait ConfigPort: Send + Sync {
+    fn get_state_host(&self, req: Url) -> Option<ConfigStateHost>;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// CLI Port
+////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[async_trait]
 #[automock]

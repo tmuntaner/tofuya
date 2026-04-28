@@ -1,7 +1,6 @@
-use crate::core::config::{Config, StateHostType};
-use crate::domain::tofu::models::{Group, GroupStatus};
+use crate::domain::tofu::models::{ConfigStateHostType, Group, GroupStatus};
 use crate::domain::tofu::ports::{
-    CLIPort, CleanParams, InitGitlabParams, ProjectConfigPort, ProjectGetTargetError,
+    CLIPort, CleanParams, ConfigPort, InitGitlabParams, ProjectConfigPort, ProjectGetTargetError,
     TFStateParseError, TFStatePort, TofuCliError,
 };
 use async_trait::async_trait;
@@ -19,32 +18,34 @@ pub trait TofuService: Send + Sync {
     async fn status(&self) -> Result<Vec<GroupStatus>, ServiceStatusError>;
 }
 
-pub struct Service<CLI, PROJECT, STATE>
+pub struct Service<CLI, PROJECT, STATE, CONFIG>
 where
     CLI: CLIPort + Send + Sync + 'static,
     PROJECT: ProjectConfigPort + Send + Sync + 'static,
     STATE: TFStatePort + Send + Sync + 'static,
+    CONFIG: ConfigPort + Send + Sync + 'static,
 {
-    base_config: Config,
+    base_config: Arc<CONFIG>,
     project_config: Arc<PROJECT>,
     tofu_cli: Arc<CLI>,
     tf_state: Arc<STATE>,
 }
 
-impl<CLI, PROJECT, STATE> Service<CLI, PROJECT, STATE>
+impl<CLI, PROJECT, STATE, CONFIG> Service<CLI, PROJECT, STATE, CONFIG>
 where
     CLI: CLIPort + Send + Sync + 'static,
     PROJECT: ProjectConfigPort + Send + Sync + 'static,
     STATE: TFStatePort + Send + Sync + 'static,
+    CONFIG: ConfigPort + Send + Sync + 'static,
 {
     pub fn new(
-        base_config: Config,
+        base_config: CONFIG,
         project_config: PROJECT,
         tofu_cli: CLI,
         tf_state: STATE,
     ) -> Self {
         Self {
-            base_config,
+            base_config: Arc::new(base_config),
             project_config: Arc::new(project_config),
             tofu_cli: Arc::new(tofu_cli),
             tf_state: Arc::new(tf_state),
@@ -58,11 +59,12 @@ pub struct InitParams {
 }
 
 #[async_trait]
-impl<CLI, PROJECT, STATE> TofuService for Service<CLI, PROJECT, STATE>
+impl<CLI, PROJECT, STATE, CONFIG> TofuService for Service<CLI, PROJECT, STATE, CONFIG>
 where
     CLI: CLIPort + Send + Sync + 'static,
     PROJECT: ProjectConfigPort + Send + Sync + 'static,
     STATE: TFStatePort + Send + Sync + 'static,
+    CONFIG: ConfigPort + Send + Sync + 'static,
 {
     async fn init(&self, params: InitParams) -> Result<(), ServiceInitError> {
         let target = self
@@ -76,7 +78,7 @@ where
             .ok_or(ServiceInitError::HostNotFound)?;
 
         match state_host._type {
-            StateHostType::Gitlab => {
+            ConfigStateHostType::Gitlab => {
                 let username = state_host.gitlab_username.unwrap_or_default();
                 let access_token = state_host.gitlab_access_token.unwrap_or_default();
 

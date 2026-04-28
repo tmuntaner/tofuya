@@ -45,3 +45,20 @@ pub struct Group {
     pub states: Vec<GroupState>,
     pub dir: PathBuf,
 }
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// ConfigPort
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#[derive(Deserialize, Clone, Debug, PartialEq)]
+pub enum ConfigStateHostType {
+    Gitlab,
+}
+
+#[derive(Deserialize, Clone)]
+pub struct ConfigStateHost {
+    pub _type: ConfigStateHostType,
+    pub host: String,
+    pub gitlab_username: Option<String>,
+    pub gitlab_access_token: Option<String>,
+}
