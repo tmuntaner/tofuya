@@ -206,7 +206,7 @@ pub mod tests {
                 name: String::from("tofuya-main"),
                 base_address: String::from("https://"),
                 states: vec![String::from("foo")],
-                ext_state_command: None,
+                // ext_state_command: None,
                 state_type: StateType::OpenTofu,
                 dir: None,
             }],

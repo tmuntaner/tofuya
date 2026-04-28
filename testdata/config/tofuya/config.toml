@@ -1,5 +1,5 @@
 [[hosts]]
-_type = "gitlab"
+type = "gitlab"
 host = "gitlab.home.arpa"
 gitlab_username = "foo"
 gitlab_access_token = "bar"
