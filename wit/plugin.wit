@@ -1,0 +1,5 @@
+package my:tofuya-plugin;
+
+world tofuya-world {
+    export get-states: func() -> list<string>;
+}
