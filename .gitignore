@@ -1,6 +1,7 @@
 /target
 
 tofuya-interface.wasm
+wasi_snapshot_preview1.reactor.wasm
 
 ### VisualStudioCode template
 .vscode/*
