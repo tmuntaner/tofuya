@@ -13,7 +13,7 @@ use wasmtime::Engine;
 use wasmtime::component::Linker;
 
 const WASI_ADAPTER: &[u8] = include_bytes!("../../../wasi_snapshot_preview1.reactor.wasm");
-const TOFUYA_INTERFACE: &[u8] = include_bytes!("../../../tofuya-interface.wasm");
+const TOFUYA_INTERFACE: &[u8] = include_bytes!("../../../tofuya-plugin-interface.wasm");
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -60,6 +60,7 @@ async fn start(cli: Cli) -> anyhow::Result<(), anyhow::Error> {
     let engine = Engine::new(&config)?;
     let mut linker = Linker::new(&engine);
     wasmtime_wasi::p2::add_to_linker_async(&mut linker)?;
+    wasmtime_wasi_http::p2::add_only_http_to_linker_async(&mut linker)?;
     let plugin = PluginAdapter::new(engine, linker);
 
     // configuration objects

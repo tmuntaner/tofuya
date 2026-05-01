@@ -25,10 +25,14 @@ mockall = "0.14"
 dirs = "6.0"
 url = { version = "2.5.8", features = ["serde"]}
 comfy-table = "7.2.2"
-wasmtime = { version = "44.0.0", features = ["async"]}
-wasmtime-wasi = "44.0.0"
+wasmtime = { version = "44.0.1", features = ["async"]}
+wasmtime-wasi = "44.0.1"
+wasmtime-wasi-http = "44.0.1"
 wit-component = "0.248.0"
 wit-parser = "0.248.0"
+axum = "0.8.9"
+reqwest = { version = "0.13.3", features = ["native-tls"]}
+
 
 [profile.release]
 codegen-units = 1
