@@ -1,9 +1,7 @@
 on:
-  pull_request:
-  workflow_dispatch:
-#  push:
-#    tags:
-#      - "*/v*"
+  push:
+    tags:
+      - "v*"
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -29,10 +27,13 @@ jobs:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Get Version without 'v' prefix
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
       - name: Publish WIT
         uses: ./.github/actions/wit
         with:
           file: 'tofuya-interface.wasm'
           oci-description: 'The WASM Interface Type for Tofuya'
-          oci-reference-without-tag: 'ghcr.io/tmuntaner/tofuya-interface'
-          version: 'latest'
+          oci-reference-without-tag: 'ghcr.io/tmuntaner/tofuya-plugin-interface'
+          version: ${{ steps.version.outputs.VERSION }}
