@@ -49,13 +49,13 @@ pub enum TofuCliError {
 #[async_trait]
 #[automock]
 pub trait ProjectConfigPort: Send + Sync {
-    fn list(&self) -> Vec<Group>;
-    fn get_target(
+    async fn list(&self) -> Result<Vec<Group>, ProjectListGroupsError>;
+    async fn get_target(
         &self,
         target_group: String,
         target_state: String,
     ) -> Result<Option<StateTarget>, ProjectGetTargetError>;
-    fn state_from_address(&self, target_group: String, address: String) -> Option<String>;
+    async fn state_from_address(&self, target_group: String, address: String) -> Option<String>;
 }
 
 #[derive(Error, Debug)]
@@ -64,6 +64,14 @@ pub enum ProjectConfigError {
     FSError(#[from] std::io::Error),
     #[error(transparent)]
     SerdeError(#[from] toml::de::Error),
+    #[error(transparent)]
+    PluginError(#[from] PluginGetStatesError),
+}
+
+#[derive(Error, Debug)]
+pub enum ProjectListGroupsError {
+    #[error(transparent)]
+    ProjectErrorError(#[from] ProjectConfigError),
 }
 
 #[derive(Error, Debug)]
@@ -110,4 +118,25 @@ pub enum TFStateParseError {
     FSError(#[from] std::io::Error),
     #[error(transparent)]
     SerdeError(#[from] serde_json::Error),
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Plugin
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#[async_trait]
+#[automock]
+pub trait PluginPort: Send + Sync {
+    async fn get_states(&self, component_name: String)
+    -> Result<Vec<String>, PluginGetStatesError>;
+}
+
+#[derive(Error, Debug)]
+pub enum PluginGetStatesError {
+    #[error(transparent)]
+    WasmtimeError(#[from] wasmtime::Error),
+    #[error(transparent)]
+    FSError(#[from] std::io::Error),
+    #[error("failed to obtain lock")]
+    MutexLockError,
 }

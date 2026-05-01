@@ -5,7 +5,10 @@ use crate::domain::tofu::service::{
 use comfy_table::presets::NOTHING;
 use comfy_table::{Cell, Color, Table};
 use std::sync::Arc;
+use std::{fs, io};
 use thiserror::Error;
+use wit_component::{ComponentEncoder, StringEncoding};
+use wit_parser::decoding::DecodedWasm;
 
 pub struct CliHandler<TOFU>
 where
@@ -18,15 +21,18 @@ where
 pub enum CliError {
     #[error(transparent)]
     InitError(#[from] ServiceInitError),
-
     #[error(transparent)]
     CleanError(#[from] ServiceCleanError),
-
     #[error(transparent)]
     ListError(#[from] ServiceListError),
-
     #[error(transparent)]
     StatusError(#[from] ServiceStatusError),
+    #[error(transparent)]
+    AnyhowError(#[from] anyhow::Error),
+    #[error(transparent)]
+    IOError(#[from] io::Error),
+    #[error("wit error")]
+    WITError,
 }
 
 impl<TOFU> CliHandler<TOFU>
@@ -66,6 +72,31 @@ where
         }
 
         println!("{table}");
+
+        Ok(())
+    }
+
+    pub async fn embed(&self, interface: &[u8], wasi_adapter: &[u8]) -> Result<(), CliError> {
+        let mut core_wasm = fs::read("core.wasm")?;
+        let (resolve, pkg_id) = match wit_component::decode(interface)? {
+            DecodedWasm::WitPackage(res, id) => (res, id),
+            _ => return Err(CliError::WITError),
+        };
+
+        let world_id = resolve.select_world(&[pkg_id], Some("tofuya-world"))?;
+        wit_component::embed_component_metadata(
+            &mut core_wasm,
+            &resolve,
+            world_id,
+            StringEncoding::UTF8,
+        )?;
+
+        let component_bytes = ComponentEncoder::default()
+            .module(&core_wasm)?
+            .adapter("wasi_snapshot_preview1", wasi_adapter)?
+            .encode()?;
+
+        fs::write("component.wasm", component_bytes)?;
 
         Ok(())
     }

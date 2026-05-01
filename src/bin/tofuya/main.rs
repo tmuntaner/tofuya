@@ -6,11 +6,14 @@ use tofuya::domain::tofu::service::Service;
 use tofuya::inbound::cli::CliHandler;
 use tofuya::outbound::cli::CLI;
 use tofuya::outbound::config::Config;
+use tofuya::outbound::plugin::PluginAdapter;
 use tofuya::outbound::project_config::ProjectConfig;
 use tofuya::outbound::tfstate::TFStateAdapter;
-use tracing::error;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
+use wasmtime::Engine;
+use wasmtime::component::Linker;
+
+const WASI_ADAPTER: &[u8] = include_bytes!("../../../wasi_snapshot_preview1.reactor.wasm");
+const TOFUYA_INTERFACE: &[u8] = include_bytes!("../../../tofuya-interface.wasm");
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -33,17 +36,14 @@ enum Commands {
     List,
     Clean,
     Status,
+    Embed,
 }
 
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer())
-        .init();
-
     if let Err(e) = start(cli).await {
-        error!("Error: {:#?}", e);
+        println!("Error: {:#?}", e);
         exit(1);
     }
 }
@@ -54,9 +54,17 @@ async fn start(cli: Cli) -> anyhow::Result<(), anyhow::Error> {
     let current_dir = std::env::current_dir().unwrap_or_default();
     let project_config_path = current_dir.join(".tofuya.toml");
 
+    // wasm
+    let mut config = wasmtime::Config::default();
+    config.wasm_component_model(true);
+    let engine = Engine::new(&config)?;
+    let mut linker = Linker::new(&engine);
+    wasmtime_wasi::p2::add_to_linker_async(&mut linker)?;
+    let plugin = PluginAdapter::new(engine, linker);
+
     // configuration objects
     let base_config = Config::new(config_dir, cli.config_path)?;
-    let project_config = ProjectConfig::new(project_config_path)?;
+    let project_config = ProjectConfig::new(project_config_path, plugin)?;
     let tofu_cli = CLI::new();
     let tf_state = TFStateAdapter::new();
 
@@ -85,6 +93,10 @@ async fn start(cli: Cli) -> anyhow::Result<(), anyhow::Error> {
                 .status()
                 .await
                 .map_err(|_| anyhow!("failed to get status")),
+            Commands::Embed => cli_handler
+                .embed(TOFUYA_INTERFACE, WASI_ADAPTER)
+                .await
+                .map_err(|_| anyhow!("failed to embed")),
         },
     }
 }

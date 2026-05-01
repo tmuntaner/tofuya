@@ -1,7 +1,7 @@
 use crate::domain::tofu::models::{ConfigStateHostType, Group, GroupStatus};
 use crate::domain::tofu::ports::{
-    CLIPort, CleanParams, ConfigPort, InitGitlabParams, ProjectConfigPort, ProjectGetTargetError,
-    TFStateParseError, TFStatePort, TofuCliError,
+    CLIPort, CleanParams, ConfigPort, InitGitlabParams, PluginGetStatesError, ProjectConfigPort,
+    ProjectGetTargetError, ProjectListGroupsError, TFStateParseError, TFStatePort, TofuCliError,
 };
 use async_trait::async_trait;
 use mockall::automock;
@@ -69,7 +69,8 @@ where
     async fn init(&self, params: InitParams) -> Result<(), ServiceInitError> {
         let target = self
             .project_config
-            .get_target(params.group, params.state)?
+            .get_target(params.group, params.state)
+            .await?
             .ok_or(ServiceInitError::AddressNotFound)?;
 
         let state_host = self
@@ -100,13 +101,13 @@ where
     }
 
     async fn list(&self) -> Result<Vec<Group>, ServiceListError> {
-        let groups = self.project_config.list();
+        let groups = self.project_config.list().await?;
 
         Ok(groups)
     }
 
     async fn clean(&self) -> Result<(), ServiceCleanError> {
-        let groups = self.project_config.list();
+        let groups = self.project_config.list().await?;
 
         for group in groups {
             Command::new("rm")
@@ -121,8 +122,9 @@ where
 
     async fn status(&self) -> Result<Vec<GroupStatus>, ServiceStatusError> {
         let mut statuses = vec![];
+        let groups = self.project_config.list().await?;
 
-        for group in self.project_config.list() {
+        for group in groups {
             let tf_state = self.tf_state.parse(group.dir.clone())?;
             match tf_state {
                 None => {
@@ -136,7 +138,8 @@ where
                     let address = tf_state.backend.config.address;
                     let state = self
                         .project_config
-                        .state_from_address(group.name.clone(), address.clone());
+                        .state_from_address(group.name.clone(), address.clone())
+                        .await;
 
                     statuses.push(GroupStatus {
                         name: group.name.clone(),
@@ -161,19 +164,28 @@ pub enum ServiceInitError {
     TofuCLIError(#[from] TofuCliError),
     #[error(transparent)]
     ProjectConfigError(#[from] ProjectGetTargetError),
+    #[error(transparent)]
+    PluginGetStatesError(#[from] PluginGetStatesError),
 }
 
 #[derive(Debug, Error)]
-pub enum ServiceListError {}
+pub enum ServiceListError {
+    #[error(transparent)]
+    ListGroupsError(#[from] ProjectListGroupsError),
+}
 
 #[derive(Debug, Error)]
 pub enum ServiceCleanError {
     #[error(transparent)]
     CommandError(#[from] std::io::Error),
+    #[error(transparent)]
+    ListGroupsError(#[from] ProjectListGroupsError),
 }
 
 #[derive(Debug, Error)]
 pub enum ServiceStatusError {
     #[error(transparent)]
     TFStateParseError(#[from] TFStateParseError),
+    #[error(transparent)]
+    ListGroupsError(#[from] ProjectListGroupsError),
 }

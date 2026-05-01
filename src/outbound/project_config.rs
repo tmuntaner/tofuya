@@ -1,64 +1,110 @@
 use crate::domain::tofu::models::{Group, GroupState, StateTarget, StateType};
 use crate::domain::tofu::ports::{
-    ProjectConfigError, ProjectConfigPort, ProjectGetTargetError, StateAddressError,
+    PluginPort, ProjectConfigError, ProjectConfigPort, ProjectGetTargetError,
+    ProjectListGroupsError, StateAddressError,
 };
+use async_trait::async_trait;
 use serde::Deserialize;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Arc;
 use url::Url;
 
-#[derive(Deserialize, Clone, Default)]
-pub struct ProjectConfig {
-    state_groups: Vec<StateGroup>,
+#[derive(Clone, Default)]
+pub struct ProjectConfig<PLUGIN>
+where
+    PLUGIN: PluginPort + Send + Sync + 'static,
+{
+    config: Config,
+    plugin: Arc<PLUGIN>,
 }
 
-impl ProjectConfig {
-    pub fn new(path: PathBuf) -> Result<Self, ProjectConfigError> {
-        if !path.exists() {
-            return Ok(Default::default());
-        }
+impl<PLUGIN> ProjectConfig<PLUGIN>
+where
+    PLUGIN: PluginPort + Send + Sync + 'static,
+{
+    pub fn new(path: PathBuf, plugin: PLUGIN) -> Result<Self, ProjectConfigError> {
+        let plugin = Arc::new(plugin);
+        let config = if !path.exists() {
+            Self {
+                config: Config::default(),
+                plugin,
+            }
+        } else {
+            let config_text = fs::read_to_string(path)?;
+            let config = toml::from_str(config_text.as_str())?;
 
-        let config_text = fs::read_to_string(path)?;
-        let config: ProjectConfig = toml::from_str(config_text.as_str())?;
+            Self { config, plugin }
+        };
 
         Ok(config)
     }
-}
 
-impl ProjectConfigPort for ProjectConfig {
-    fn list(&self) -> Vec<Group> {
-        self.state_groups
-            .iter()
-            .map(|group| {
-                let dir = group
-                    .dir
-                    .clone()
-                    .map(PathBuf::from)
-                    .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    async fn get_plugin_states(
+        &self,
+        component_name: String,
+    ) -> Result<Vec<String>, ProjectConfigError> {
+        let states = self.plugin.get_states(component_name).await?;
 
-                let states: Vec<GroupState> = group
-                    .states
-                    .iter()
-                    .map(|state| GroupState {
-                        name: state.clone(),
-                    })
-                    .collect();
-
-                Group {
-                    name: group.name.clone(),
-                    states,
-                    dir,
-                }
-            })
-            .collect()
+        Ok(states)
     }
 
-    fn get_target(
+    async fn states(&self, group: &StateGroup) -> Result<Vec<String>, ProjectConfigError> {
+        let states: Vec<String> = if let Some(wasm_file) = group.ext_wasm_file.clone() {
+            self.get_plugin_states(wasm_file).await?
+        } else {
+            group.states.clone()
+        };
+
+        Ok(states)
+    }
+}
+
+#[derive(Deserialize, Clone, Default)]
+pub struct Config {
+    state_groups: Vec<StateGroup>,
+}
+
+#[async_trait]
+impl<PLUGIN> ProjectConfigPort for ProjectConfig<PLUGIN>
+where
+    PLUGIN: PluginPort + Send + Sync + 'static,
+{
+    async fn list(&self) -> Result<Vec<Group>, ProjectListGroupsError> {
+        let mut groups: Vec<Group> = Vec::new();
+
+        for group in &self.config.state_groups {
+            let dir = group
+                .dir
+                .clone()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+
+            let states = self.states(group).await?;
+
+            let states = states
+                .iter()
+                .map(|state| GroupState {
+                    name: state.clone(),
+                })
+                .collect();
+
+            groups.push(Group {
+                name: group.name.clone(),
+                states,
+                dir,
+            });
+        }
+
+        Ok(groups)
+    }
+
+    async fn get_target(
         &self,
         target_group: String,
         target_state: String,
     ) -> Result<Option<StateTarget>, ProjectGetTargetError> {
-        let state_group = self.state_groups.iter().find(|state_group| {
+        let state_group = self.config.state_groups.iter().find(|state_group| {
             let name = state_group.name.to_string();
             target_group.eq(&name)
         });
@@ -94,8 +140,8 @@ impl ProjectConfigPort for ProjectConfig {
         Ok(None)
     }
 
-    fn state_from_address(&self, target_group: String, address: String) -> Option<String> {
-        let state_group = self.state_groups.iter().find(|state_group| {
+    async fn state_from_address(&self, target_group: String, address: String) -> Option<String> {
+        let state_group = self.config.state_groups.iter().find(|state_group| {
             let name = state_group.name.to_string();
             target_group.eq(&name)
         })?;
@@ -117,7 +163,7 @@ struct StateGroup {
     pub name: String,
     pub base_address: String,
     pub states: Vec<String>,
-    // pub ext_state_command: Option<String>,
+    pub ext_wasm_file: Option<String>,
     pub state_type: StateType,
     pub dir: Option<String>,
 }
@@ -140,42 +186,47 @@ impl StateGroup {
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use crate::domain::tofu::ports::MockPluginPort;
 
     #[test]
     fn test_config() {
+        let plugin = MockPluginPort::new();
         let config_dir = std::env::current_dir()
             .unwrap()
             .join("testdata")
             .join("project_configs")
             .join(".tofuya.toml");
 
-        let config = ProjectConfig::new(config_dir).unwrap();
-        assert_eq!(config.state_groups.len(), 1);
+        let config = ProjectConfig::new(config_dir, plugin).unwrap();
+        assert_eq!(config.config.state_groups.len(), 1);
     }
 
     #[test]
     fn test_config_does_not_exist() {
+        let plugin = MockPluginPort::new();
         let config_dir = std::env::current_dir()
             .unwrap()
             .join("testdata")
             .join("project_configs")
             .join(".tofuya-missing.toml");
 
-        let config = ProjectConfig::new(config_dir).unwrap();
-        assert_eq!(config.state_groups.len(), 0);
+        let config = ProjectConfig::new(config_dir, plugin).unwrap();
+        assert_eq!(config.config.state_groups.len(), 0);
     }
 
-    #[test]
-    fn test_config_get_target() {
+    #[tokio::test]
+    async fn test_config_get_target() {
+        let plugin = MockPluginPort::new();
         let config_dir = std::env::current_dir()
             .unwrap()
             .join("testdata")
             .join("project_configs")
             .join(".tofuya.toml");
 
-        let config = ProjectConfig::new(config_dir).unwrap();
+        let config = ProjectConfig::new(config_dir, plugin).unwrap();
         let target = config
             .get_target(String::from("tofuya-main"), String::from("bar"))
+            .await
             .unwrap()
             .unwrap();
 
@@ -186,63 +237,76 @@ pub mod tests {
         assert_eq!(StateType::OpenTofu, target.state_type);
     }
 
-    #[test]
-    fn test_config_get_target_malformed_state_name() {
+    #[tokio::test]
+    async fn test_config_get_target_malformed_state_name() {
+        let plugin = MockPluginPort::new();
         let config_dir = std::env::current_dir()
             .unwrap()
             .join("testdata")
             .join("project_configs")
             .join(".tofuya.toml");
 
-        let config = ProjectConfig::new(config_dir).unwrap();
-        let target = config.get_target(String::from("tofuya-main"), String::from("https://"));
+        let config = ProjectConfig::new(config_dir, plugin).unwrap();
+        let target = config
+            .get_target(String::from("tofuya-main"), String::from("https://"))
+            .await;
         assert_eq!(true, target.is_err());
     }
 
-    #[test]
-    fn test_config_get_target_malformed_host() {
+    #[tokio::test]
+    async fn test_config_get_target_malformed_host() {
+        let plugin = MockPluginPort::new();
         let config = ProjectConfig {
-            state_groups: vec![StateGroup {
-                name: String::from("tofuya-main"),
-                base_address: String::from("https://"),
-                states: vec![String::from("foo")],
-                // ext_state_command: None,
-                state_type: StateType::OpenTofu,
-                dir: None,
-            }],
+            config: Config {
+                state_groups: vec![StateGroup {
+                    name: String::from("tofuya-main"),
+                    base_address: String::from("https://"),
+                    states: vec![String::from("foo")],
+                    ext_wasm_file: None,
+                    state_type: StateType::OpenTofu,
+                    dir: None,
+                }],
+            },
+            plugin: Arc::new(plugin),
         };
-        let target = config.get_target(String::from("tofuya-main"), String::from("foo"));
+        let target = config
+            .get_target(String::from("tofuya-main"), String::from("foo"))
+            .await;
         assert_eq!(true, target.is_err());
     }
 
-    #[test]
-    fn test_config_get_target_not_found() {
+    #[tokio::test]
+    async fn test_config_get_target_not_found() {
+        let plugin = MockPluginPort::new();
         let config_dir = std::env::current_dir()
             .unwrap()
             .join("testdata")
             .join("project_configs")
             .join(".tofuya-missing.toml");
 
-        let config = ProjectConfig::new(config_dir).unwrap();
-        assert_eq!(0, config.state_groups.len());
+        let config = ProjectConfig::new(config_dir, plugin).unwrap();
+        assert_eq!(0, config.config.state_groups.len());
         let target = config
             .get_target(String::from("tofuya-main"), String::from("foo"))
+            .await
             .unwrap();
         assert_eq!(true, target.is_none());
     }
 
-    #[test]
-    fn test_config_get_target_no_state() {
+    #[tokio::test]
+    async fn test_config_get_target_no_state() {
+        let plugin = MockPluginPort::new();
         let config_dir = std::env::current_dir()
             .unwrap()
             .join("testdata")
             .join("project_configs")
             .join(".tofuya.toml");
 
-        let config = ProjectConfig::new(config_dir).unwrap();
-        assert_eq!(1, config.state_groups.len());
+        let config = ProjectConfig::new(config_dir, plugin).unwrap();
+        assert_eq!(1, config.config.state_groups.len());
         let target = config
             .get_target(String::from("tofuya-main"), String::from("foobar"))
+            .await
             .unwrap();
         assert_eq!(true, target.is_none());
     }

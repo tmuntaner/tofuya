@@ -1,0 +1,52 @@
+name: "wkg"
+description: "Publish a Wasm package using `wkg`"
+
+inputs:
+  file:
+    description: The path to the file to push
+    required: true
+  oci-reference-without-tag:
+    description: "ghcr.io/webassembly/wasi/wasi-io"
+    required: true
+  oci-description:
+    description: "Value for org.opencontainers.image.description"
+    required: false
+  source:
+    description: "Value for org.opencontainers.image.source"
+    required: false
+  homepage:
+    description: "Value for org.opencontainers.image.homepage"
+    required: false
+  version:
+    description: "Value for org.opencontainers.image.version without the `v` prefix"
+    required: true
+  licenses:
+    description: "Value for org.opencontainers.image.licenses"
+    required: false
+
+outputs:
+  digest:
+    description: "wasm component digest"
+    value: ${{ steps.push.outputs.digest }}
+
+runs:
+  using: composite
+  steps:
+    - name: Push the Wasm binary to the registry
+      id: push
+      shell: bash
+      if: ${{ inputs.worlds != '*' }}
+      run: |
+        set -ex
+        output=$(wkg oci push ${{ inputs.oci-reference-without-tag }}:${{ inputs.version }} ${{ inputs.file }}\
+          --annotation "org.opencontainers.image.description"="${{ inputs.oci-description }}" \
+          --annotation "org.opencontainers.image.source"="${{ inputs.source }}" \
+          --annotation "org.opencontainers.image.url"="${{ inputs.homepage }}" \
+          --annotation "org.opencontainers.image.version"="${{ inputs.version }}" \
+          --annotation "org.opencontainers.image.licenses"="${{ inputs.licenses }}")
+
+          digest=$(echo "$output" | grep -oP 'digest: \K.*')
+
+          echo "extracted digest: $digest"
+
+          echo "digest=$digest" >> $GITHUB_OUTPUT

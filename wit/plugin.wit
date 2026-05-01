@@ -1,0 +1,9 @@
+package tofuya:plugin;
+
+interface core-state {
+    get-states: func() -> list<string>;
+}
+
+world tofuya-world {
+    export core-state;
+}
