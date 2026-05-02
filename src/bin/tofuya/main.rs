@@ -65,7 +65,7 @@ async fn start(cli: Cli) -> anyhow::Result<(), anyhow::Error> {
 
     // configuration objects
     let base_config = Config::new(config_dir, cli.config_path)?;
-    let project_config = ProjectConfig::new(project_config_path, plugin)?;
+    let project_config = ProjectConfig::new(project_config_path, plugin, base_config.clone())?;
     let tofu_cli = CLI::new();
     let tf_state = TFStateAdapter::new();
 
