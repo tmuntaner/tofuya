@@ -65,19 +65,28 @@ impl PluginPort for PluginAdapter {
     async fn get_states(
         &self,
         component_name: String,
+        config: HashMap<String, String>,
     ) -> Result<Vec<String>, PluginGetStatesError> {
         let component = self.get_component(component_name)?;
+
+        let wasi_http_ctx = WasiHttpCtx::new();
+        let mut wasi_builder = WasiCtxBuilder::new();
+
+        // file system access
+        let host_dir = "./";
+        std::fs::create_dir_all(host_dir)?;
+        wasi_builder.preopened_dir(host_dir, "/", DirPerms::READ, FilePerms::READ)?;
+
+        // network access
         let proxy_url = spawn_embedded_proxy()
             .await
-            .map_err(|_| PluginGetStatesError::MutexLockError)?;
-
-        let host_dir = "./cmd";
-        std::fs::create_dir_all(host_dir)?;
-
-        let mut wasi_builder = WasiCtxBuilder::new();
-        wasi_builder.preopened_dir(host_dir, "/cmd", DirPerms::READ, FilePerms::READ)?;
+            .map_err(|_| PluginGetStatesError::PluginProxyError)?;
         wasi_builder.env("TOFUYA_PROXY_URL", &proxy_url);
-        let wasi_http_ctx = WasiHttpCtx::new();
+
+        // extra config
+        for (key, value) in config {
+            wasi_builder.env(key, value);
+        }
 
         let state = PluginState {
             ctx: wasi_builder.build(),
@@ -87,7 +96,11 @@ impl PluginPort for PluginAdapter {
 
         let mut store = Store::new(&self.engine, state);
         let my_world = TofuyaWorld::instantiate_async(&mut store, &component, &self.linker).await?;
-        let states: Vec<String> = my_world.interface0.call_get_states(&mut store).await?;
+        let states = my_world
+            .interface0
+            .call_get_states(&mut store)
+            .await?
+            .map_err(|_| PluginGetStatesError::PluginCallError)?;
 
         Ok(states)
     }

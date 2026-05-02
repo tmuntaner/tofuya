@@ -2,6 +2,7 @@ use crate::domain::tofu::models::{ConfigStateHost, Group, StateTarget, StateType
 use async_trait::async_trait;
 use mockall::automock;
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use thiserror::Error;
 use url::Url;
@@ -63,9 +64,15 @@ pub enum ProjectConfigError {
     #[error(transparent)]
     FSError(#[from] std::io::Error),
     #[error(transparent)]
-    SerdeError(#[from] toml::de::Error),
+    SerdeTomlError(#[from] toml::de::Error),
+    #[error(transparent)]
+    SerdeJsonError(#[from] serde_json::Error),
     #[error(transparent)]
     PluginError(#[from] PluginGetStatesError),
+    #[error(transparent)]
+    ParseError(#[from] url::ParseError),
+    #[error("host not found")]
+    HostNotFound,
 }
 
 #[derive(Error, Debug)]
@@ -127,8 +134,11 @@ pub enum TFStateParseError {
 #[async_trait]
 #[automock]
 pub trait PluginPort: Send + Sync {
-    async fn get_states(&self, component_name: String)
-    -> Result<Vec<String>, PluginGetStatesError>;
+    async fn get_states(
+        &self,
+        component_name: String,
+        config: HashMap<String, String>,
+    ) -> Result<Vec<String>, PluginGetStatesError>;
 }
 
 #[derive(Error, Debug)]
@@ -139,4 +149,8 @@ pub enum PluginGetStatesError {
     FSError(#[from] std::io::Error),
     #[error("failed to obtain lock")]
     MutexLockError,
+    #[error("failed to call plugin")]
+    PluginCallError,
+    #[error("failed to start proxy")]
+    PluginProxyError,
 }

@@ -1,12 +1,16 @@
 use crate::domain::tofu::models::{Group, GroupState, StateTarget, StateType};
 use crate::domain::tofu::ports::{
-    PluginPort, ProjectConfigError, ProjectConfigPort, ProjectGetTargetError,
+    ConfigPort, PluginPort, ProjectConfigError, ProjectConfigPort, ProjectGetTargetError,
     ProjectListGroupsError, StateAddressError,
 };
+use crate::outbound::config;
 use async_trait::async_trait;
 use serde::Deserialize;
+use serde_json::Value;
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 use url::Url;
 
@@ -16,6 +20,7 @@ where
     PLUGIN: PluginPort + Send + Sync + 'static,
 {
     config: Config,
+    base_config: config::Config,
     plugin: Arc<PLUGIN>,
 }
 
@@ -23,18 +28,27 @@ impl<PLUGIN> ProjectConfig<PLUGIN>
 where
     PLUGIN: PluginPort + Send + Sync + 'static,
 {
-    pub fn new(path: PathBuf, plugin: PLUGIN) -> Result<Self, ProjectConfigError> {
+    pub fn new(
+        path: PathBuf,
+        plugin: PLUGIN,
+        base_config: config::Config,
+    ) -> Result<Self, ProjectConfigError> {
         let plugin = Arc::new(plugin);
         let config = if !path.exists() {
             Self {
                 config: Config::default(),
+                base_config,
                 plugin,
             }
         } else {
             let config_text = fs::read_to_string(path)?;
             let config = toml::from_str(config_text.as_str())?;
 
-            Self { config, plugin }
+            Self {
+                config,
+                plugin,
+                base_config,
+            }
         };
 
         Ok(config)
@@ -42,16 +56,40 @@ where
 
     async fn get_plugin_states(
         &self,
+        group: &StateGroup,
         component_name: String,
     ) -> Result<Vec<String>, ProjectConfigError> {
-        let states = self.plugin.get_states(component_name).await?;
+        let mut url = Url::from_str(group.base_address.as_str())?;
+        url.set_path("");
+        let host = url.to_string();
+
+        let state_host = self
+            .base_config
+            .get_state_host(url.clone())
+            .ok_or(ProjectConfigError::HostNotFound)?;
+
+        let mut plugin_config = HashMap::new();
+        plugin_config.insert("STATE_HOST".to_string(), host);
+        if let Some(auth_key) = state_host.gitlab_access_token {
+            plugin_config.insert("GITLAB_ACCESS_TOKEN".to_string(), auth_key);
+        }
+
+        if let Some(wasm_config) = &group.wasm_config {
+            let wasm_config = serde_json::to_string(wasm_config)?;
+            plugin_config.insert("TOFUYA_PLUGIN_CONFIG".to_string(), wasm_config);
+        }
+
+        let states = self
+            .plugin
+            .get_states(component_name, plugin_config)
+            .await?;
 
         Ok(states)
     }
 
     async fn states(&self, group: &StateGroup) -> Result<Vec<String>, ProjectConfigError> {
         let states: Vec<String> = if let Some(wasm_file) = group.ext_wasm_file.clone() {
-            self.get_plugin_states(wasm_file).await?
+            self.get_plugin_states(group, wasm_file).await?
         } else {
             group.states.clone()
         };
@@ -164,6 +202,7 @@ struct StateGroup {
     pub base_address: String,
     pub states: Vec<String>,
     pub ext_wasm_file: Option<String>,
+    pub wasm_config: Option<HashMap<String, Value>>,
     pub state_type: StateType,
     pub dir: Option<String>,
 }
@@ -197,7 +236,8 @@ pub mod tests {
             .join("project_configs")
             .join(".tofuya.toml");
 
-        let config = ProjectConfig::new(config_dir, plugin).unwrap();
+        let base_config = config::Config::default();
+        let config = ProjectConfig::new(config_dir, plugin, base_config).unwrap();
         assert_eq!(config.config.state_groups.len(), 1);
     }
 
@@ -210,7 +250,8 @@ pub mod tests {
             .join("project_configs")
             .join(".tofuya-missing.toml");
 
-        let config = ProjectConfig::new(config_dir, plugin).unwrap();
+        let base_config = config::Config::default();
+        let config = ProjectConfig::new(config_dir, plugin, base_config).unwrap();
         assert_eq!(config.config.state_groups.len(), 0);
     }
 
@@ -223,7 +264,8 @@ pub mod tests {
             .join("project_configs")
             .join(".tofuya.toml");
 
-        let config = ProjectConfig::new(config_dir, plugin).unwrap();
+        let base_config = config::Config::default();
+        let config = ProjectConfig::new(config_dir, plugin, base_config).unwrap();
         let target = config
             .get_target(String::from("tofuya-main"), String::from("bar"))
             .await
@@ -246,7 +288,8 @@ pub mod tests {
             .join("project_configs")
             .join(".tofuya.toml");
 
-        let config = ProjectConfig::new(config_dir, plugin).unwrap();
+        let base_config = config::Config::default();
+        let config = ProjectConfig::new(config_dir, plugin, base_config).unwrap();
         let target = config
             .get_target(String::from("tofuya-main"), String::from("https://"))
             .await;
@@ -255,6 +298,7 @@ pub mod tests {
 
     #[tokio::test]
     async fn test_config_get_target_malformed_host() {
+        let base_config = config::Config::default();
         let plugin = MockPluginPort::new();
         let config = ProjectConfig {
             config: Config {
@@ -263,11 +307,13 @@ pub mod tests {
                     base_address: String::from("https://"),
                     states: vec![String::from("foo")],
                     ext_wasm_file: None,
+                    wasm_config: None,
                     state_type: StateType::OpenTofu,
                     dir: None,
                 }],
             },
             plugin: Arc::new(plugin),
+            base_config,
         };
         let target = config
             .get_target(String::from("tofuya-main"), String::from("foo"))
@@ -284,7 +330,8 @@ pub mod tests {
             .join("project_configs")
             .join(".tofuya-missing.toml");
 
-        let config = ProjectConfig::new(config_dir, plugin).unwrap();
+        let base_config = config::Config::default();
+        let config = ProjectConfig::new(config_dir, plugin, base_config).unwrap();
         assert_eq!(0, config.config.state_groups.len());
         let target = config
             .get_target(String::from("tofuya-main"), String::from("foo"))
@@ -302,7 +349,8 @@ pub mod tests {
             .join("project_configs")
             .join(".tofuya.toml");
 
-        let config = ProjectConfig::new(config_dir, plugin).unwrap();
+        let base_config = config::Config::default();
+        let config = ProjectConfig::new(config_dir, plugin, base_config).unwrap();
         assert_eq!(1, config.config.state_groups.len());
         let target = config
             .get_target(String::from("tofuya-main"), String::from("foobar"))
