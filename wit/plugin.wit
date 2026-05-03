@@ -1,4 +1,4 @@
-package tofuya:plugin;
+package tofuya:plugin-interface@0.1.0;
 
 interface core-state {
     get-states: func() -> result<list<string>, string>;
