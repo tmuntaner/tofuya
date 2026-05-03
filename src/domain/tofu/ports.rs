@@ -149,8 +149,8 @@ pub enum PluginGetStatesError {
     FSError(#[from] std::io::Error),
     #[error("failed to obtain lock")]
     MutexLockError,
-    #[error("failed to call plugin")]
-    PluginCallError,
+    #[error("failed to call plugin: {0}")]
+    PluginCallError(String),
     #[error("failed to start proxy")]
     PluginProxyError,
 }

@@ -85,19 +85,19 @@ async fn start(cli: Cli) -> anyhow::Result<(), anyhow::Error> {
             Commands::List => cli_handler
                 .list()
                 .await
-                .map_err(|_| anyhow!("failed to list")),
+                .map_err(|err| anyhow!("failed to list: {}", err)),
             Commands::Clean => cli_handler
                 .clean()
                 .await
-                .map_err(|_| anyhow!("failed to clean")),
+                .map_err(|err| anyhow!("failed to clean: {}", err)),
             Commands::Status => cli_handler
                 .status()
                 .await
-                .map_err(|_| anyhow!("failed to get status")),
+                .map_err(|err| anyhow!("failed to get status: {}", err)),
             Commands::Embed => cli_handler
                 .embed(TOFUYA_INTERFACE, WASI_ADAPTER)
                 .await
-                .map_err(|_| anyhow!("failed to embed")),
+                .map_err(|err| anyhow!("failed to embed: {}", err)),
         },
     }
 }

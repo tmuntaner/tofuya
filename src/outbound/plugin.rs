@@ -100,7 +100,7 @@ impl PluginPort for PluginAdapter {
             .interface0
             .call_get_states(&mut store)
             .await?
-            .map_err(|_| PluginGetStatesError::PluginCallError)?;
+            .map_err(|err| PluginGetStatesError::PluginCallError(err))?;
 
         Ok(states)
     }
