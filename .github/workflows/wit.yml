@@ -35,5 +35,5 @@ jobs:
         with:
           file: 'tofuya-interface.wasm'
           oci-description: 'The WASM Interface Type for Tofuya'
-          oci-reference-without-tag: 'ghcr.io/tmuntaner/tofuya-plugin-interface'
+          oci-reference-without-tag: 'ghcr.io/tmuntaner/tofuya/plugin-interface'
           version: ${{ steps.version.outputs.VERSION }}
