@@ -1,7 +1,8 @@
 use crate::domain::tofu::models::{ConfigStateHostType, Group, GroupStatus};
 use crate::domain::tofu::ports::{
     CLIPort, CleanParams, ConfigPort, InitGitlabParams, PluginGetStatesError, ProjectConfigPort,
-    ProjectGetTargetError, ProjectListGroupsError, TFStateParseError, TFStatePort, TofuCliError,
+    ProjectGetStateFromAddressError, ProjectGetTargetError, ProjectListGroupsError,
+    TFStateParseError, TFStatePort, TofuCliError,
 };
 use async_trait::async_trait;
 use mockall::automock;
@@ -139,7 +140,7 @@ where
                     let state = self
                         .project_config
                         .state_from_address(group.name.clone(), address.clone())
-                        .await;
+                        .await?;
 
                     statuses.push(GroupStatus {
                         name: group.name.clone(),
@@ -188,4 +189,6 @@ pub enum ServiceStatusError {
     TFStateParseError(#[from] TFStateParseError),
     #[error(transparent)]
     ListGroupsError(#[from] ProjectListGroupsError),
+    #[error(transparent)]
+    ProjectGetStatesError(#[from] ProjectGetStateFromAddressError),
 }
