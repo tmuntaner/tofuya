@@ -1,0 +1,33 @@
+name: Continuous integration
+on:
+  workflow_dispatch:
+  pull_request:
+
+jobs:
+  ci:
+    name: CI build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install dependencies
+        uses: ./.github/actions/install-dependencies
+
+      - name: Build the Wasm Component
+        shell: bash
+        run: |
+          just build
+      - name: Build wit interface
+        shell: bash
+        run: |
+          wkg wit build --wit-dir wit -o tofuya-interface.wasm
+
+      - name: Run cargo fmt
+        run: cargo fmt --all -- --check
+
+      - name: Run cargo test
+        run: cargo test
+
+      - name: Run cargo clippy
+        run: cargo clippy -- -D warnings
