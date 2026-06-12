@@ -56,7 +56,11 @@ pub trait ProjectConfigPort: Send + Sync {
         target_group: String,
         target_state: String,
     ) -> Result<Option<StateTarget>, ProjectGetTargetError>;
-    async fn state_from_address(&self, target_group: String, address: String) -> Option<String>;
+    async fn state_from_address(
+        &self,
+        target_group: String,
+        address: String,
+    ) -> Result<Option<String>, ProjectGetStateFromAddressError>;
 }
 
 #[derive(Error, Debug)]
@@ -93,6 +97,14 @@ pub enum ProjectGetTargetError {
     AddressNotFound,
     #[error(transparent)]
     ParseError(#[from] StateAddressError),
+    #[error(transparent)]
+    ProjectErrorError(#[from] ProjectConfigError),
+}
+
+#[derive(Error, Debug)]
+pub enum ProjectGetStateFromAddressError {
+    #[error(transparent)]
+    ProjectErrorError(#[from] ProjectConfigError),
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

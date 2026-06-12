@@ -18,10 +18,11 @@ jobs:
         shell: bash
         run: |
           just build
+
       - name: Build wit interface
         shell: bash
         run: |
-          wkg wit build --wit-dir wit -o tofuya-interface.wasm
+          just build_interface
 
       - name: Run cargo fmt
         run: cargo fmt --all -- --check

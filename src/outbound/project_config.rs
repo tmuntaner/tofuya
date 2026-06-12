@@ -1,7 +1,7 @@
 use crate::domain::tofu::models::{Group, GroupState, StateTarget, StateType};
 use crate::domain::tofu::ports::{
-    ConfigPort, PluginPort, ProjectConfigError, ProjectConfigPort, ProjectGetTargetError,
-    ProjectListGroupsError, StateAddressError,
+    ConfigPort, PluginPort, ProjectConfigError, ProjectConfigPort, ProjectGetStateFromAddressError,
+    ProjectGetTargetError, ProjectListGroupsError, StateAddressError,
 };
 use crate::outbound::config;
 use async_trait::async_trait;
@@ -91,7 +91,7 @@ where
         let states: Vec<String> = if let Some(wasm_file) = group.ext_wasm_file.clone() {
             self.get_plugin_states(group, wasm_file).await?
         } else {
-            group.states.clone()
+            group.states.clone().unwrap_or_default()
         };
 
         Ok(states)
@@ -149,10 +149,11 @@ where
 
         if let Some(state_group) = state_group {
             // find the state
-            let state = state_group
-                .states
-                .iter()
-                .find(|&group_state| target_state.eq(group_state));
+            let state = self
+                .states(state_group)
+                .await?
+                .into_iter()
+                .find(|group_state| target_state.eq(group_state));
 
             // if we have a state, append it to the base URL
             if let Some(group_state) = state {
@@ -178,29 +179,38 @@ where
         Ok(None)
     }
 
-    async fn state_from_address(&self, target_group: String, address: String) -> Option<String> {
+    async fn state_from_address(
+        &self,
+        target_group: String,
+        address: String,
+    ) -> Result<Option<String>, ProjectGetStateFromAddressError> {
         let state_group = self.config.state_groups.iter().find(|state_group| {
             let name = state_group.name.to_string();
             target_group.eq(&name)
-        })?;
+        });
 
-        for state in state_group.states.clone() {
-            if let Ok(Some(state_address)) = state_group.state_address(state.clone())
-                && state_address.to_string().eq(&address)
-            {
-                return Some(state);
+        if let Some(state_group) = state_group {
+            let states = self.states(state_group).await?;
+
+            for state in states.clone() {
+                if let Ok(Some(state_address)) = state_group.state_address(state.clone())
+                    && state_address.to_string().eq(&address)
+                {
+                    return Ok(Some(state));
+                }
             }
         }
 
-        None
+        Ok(None)
     }
 }
 
-#[derive(Deserialize, Clone, Default)]
+#[derive(Deserialize, Clone)]
 struct StateGroup {
     pub name: String,
     pub base_address: String,
-    pub states: Vec<String>,
+    #[serde(default)]
+    pub states: Option<Vec<String>>,
     pub ext_wasm_file: Option<String>,
     pub wasm_config: Option<HashMap<String, Value>>,
     pub state_type: StateType,
@@ -210,15 +220,9 @@ struct StateGroup {
 impl StateGroup {
     fn state_address(&self, state: String) -> Result<Option<Url>, StateAddressError> {
         let base_address = Url::parse(self.base_address.as_str())?;
-        let state = self.states.iter().find(|s| state.eq(s.to_owned()));
-        match state {
-            None => Ok(None),
-            Some(state) => {
-                let url = base_address.join(state)?;
+        let url = base_address.join(state.as_str())?;
 
-                Ok(Some(url))
-            }
-        }
+        Ok(Some(url))
     }
 }
 
@@ -305,7 +309,7 @@ pub mod tests {
                 state_groups: vec![StateGroup {
                     name: String::from("tofuya-main"),
                     base_address: String::from("https://"),
-                    states: vec![String::from("foo")],
+                    states: Some(vec![String::from("foo")]),
                     ext_wasm_file: None,
                     wasm_config: None,
                     state_type: StateType::OpenTofu,
