@@ -24,6 +24,7 @@ wasmtime::component::bindgen!({
     require_store_data_send: true,
 });
 
+/// An object which manages WASM components and implements the [`PluginPort`] interface.
 pub struct PluginAdapter {
     engine: Engine,
     linker: Linker<PluginState>,
@@ -31,6 +32,7 @@ pub struct PluginAdapter {
 }
 
 impl PluginAdapter {
+    /// Creates a new [`PluginAdapter`]
     pub fn new(engine: Engine, linker: Linker<PluginState>) -> Self {
         let components = Mutex::new(HashMap::new());
 
@@ -41,12 +43,22 @@ impl PluginAdapter {
         }
     }
 
+    /// Retrieves a WASM component from the plugin adapter.
+    ///
+    /// For performance reasons, we only instantiate a new component if one does not yet exist.
+    /// Instead, components are stored in a mutex and retrieved from it.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if it has issues locking the Mutex.
     fn get_component(&self, name: String) -> Result<Component, PluginGetStatesError> {
         let mut lock = self
             .components
             .lock()
             .map_err(|_| PluginGetStatesError::MutexLockError)?;
 
+        // If the plugin already is loaded, return it.
+        // If not, read the plugin file and create a new one.
         let component = match lock.entry(name.clone()) {
             std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut().clone(),
             std::collections::hash_map::Entry::Vacant(entry) => {
@@ -62,6 +74,7 @@ impl PluginAdapter {
 
 #[async_trait]
 impl PluginPort for PluginAdapter {
+    /// This function returns the states from a WASM component.
     async fn get_states(
         &self,
         component_name: String,
@@ -69,33 +82,41 @@ impl PluginPort for PluginAdapter {
     ) -> Result<Vec<String>, PluginGetStatesError> {
         let component = self.get_component(component_name)?;
 
-        let wasi_http_ctx = WasiHttpCtx::new();
+        // set up the WASI Context
         let mut wasi_builder = WasiCtxBuilder::new();
 
-        // file system access
+        // Grant file system access to the local directory.
         let host_dir = "./";
         std::fs::create_dir_all(host_dir)?;
         wasi_builder.preopened_dir(host_dir, "/", DirPerms::READ, FilePerms::READ)?;
 
-        // network access
+        // Let the plugin know the proxy URL for network access.
+        //
+        // This is necessary because wasmtime has built in certificates and for self-signed
+        // certificates, we need to proxy the request through Tofuya.
         let proxy_url = spawn_embedded_proxy()
             .await
             .map_err(|_| PluginGetStatesError::PluginProxyError)?;
         wasi_builder.env("TOFUYA_PROXY_URL", &proxy_url);
 
-        // extra config
+        // extra user defined configuration for the plugin.
         for (key, value) in config {
             wasi_builder.env(key, value);
         }
 
+        // set up the WASI HTTP context
+        let wasi_http_ctx = WasiHttpCtx::new();
+
+        // build the plugin's state and instantiate the component.
         let state = PluginState {
             ctx: wasi_builder.build(),
             table: ResourceTable::new(),
             http: wasi_http_ctx,
         };
-
         let mut store = Store::new(&self.engine, state);
         let my_world = TofuyaWorld::instantiate_async(&mut store, &component, &self.linker).await?;
+
+        // Call the WASM plugin to get the states.
         let states = my_world
             .interface0
             .call_get_states(&mut store)
@@ -106,12 +127,14 @@ impl PluginPort for PluginAdapter {
     }
 }
 
+/// This object serves as the plugin's WASI state.
 pub struct PluginState {
     ctx: WasiCtx,
     table: ResourceTable,
     http: WasiHttpCtx,
 }
 
+/// Implement the WASI Context
 impl WasiView for PluginState {
     fn ctx(&mut self) -> WasiCtxView<'_> {
         WasiCtxView {
@@ -121,6 +144,7 @@ impl WasiView for PluginState {
     }
 }
 
+/// Implement the WASI HTTP Context
 impl WasiHttpView for PluginState {
     fn http(&mut self) -> WasiHttpCtxView<'_> {
         WasiHttpCtxView {
@@ -131,6 +155,10 @@ impl WasiHttpView for PluginState {
     }
 }
 
+/// Starts an embedded HTTP proxy server.
+///
+/// This is necessary if the WASM component cannot make HTTP/HTTPS call itself, e.g., if it has
+/// certificate issues.
 async fn spawn_embedded_proxy() -> Result<String, Box<dyn std::error::Error>> {
     // by binding to 0, we get a random port for our proxy
     let std_listener = TcpListener::bind("127.0.0.1:0")?;
@@ -151,6 +179,7 @@ async fn spawn_embedded_proxy() -> Result<String, Box<dyn std::error::Error>> {
     Ok(proxy_url)
 }
 
+/// The embedded HTTP Proxy handler.
 async fn proxy_handler(
     headers: HeaderMap,
     method: axum::http::Method,
