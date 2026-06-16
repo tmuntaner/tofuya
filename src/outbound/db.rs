@@ -17,6 +17,7 @@ impl DB {
     ) -> Result<Self, DatabaseError> {
         let mut db = Connection::open(path)?;
         migrations.to_latest(&mut db)?;
+        db.pragma_update(None, "foreign_keys", "ON")?;
 
         Ok(Self {
             db: Arc::new(Mutex::new(db)),
@@ -30,18 +31,24 @@ impl DatabasePort for DB {
         let db = self.db.clone();
 
         tokio::task::spawn_blocking(move || -> Result<(), DatabaseError> {
-            let conn = db.lock().map_err(|_| DatabaseError::LockError)?;
+            let mut conn = db.lock().map_err(|_| DatabaseError::LockError)?;
+            let tx = conn.transaction()?;
 
-            conn.execute(
-                "INSERT INTO blobs (hash, size) VALUES (?1, ?2)",
+            let blob_id: i64 = tx.query_row(
+                "INSERT INTO blobs (hash, size) VALUES (?1, ?2)
+                 ON CONFLICT(hash) DO UPDATE SET size = excluded.size
+                 RETURNING id",
                 rusqlite::params![hash, size],
+                |row| row.get(0),
             )?;
 
-            conn.execute(
-                "INSERT INTO tags (reference, blob_hash) VALUES (?1, ?2)
-                 ON CONFLICT(reference) DO UPDATE SET blob_hash = excluded.blob_hash",
-                rusqlite::params![reference, hash],
+            tx.execute(
+                "INSERT INTO tags (reference, blob_id) VALUES (?1, ?2)
+                 ON CONFLICT(reference) DO UPDATE SET blob_id = excluded.blob_id",
+                rusqlite::params![reference, blob_id],
             )?;
+
+            tx.commit()?;
 
             Ok(())
         })
@@ -59,7 +66,10 @@ impl DatabasePort for DB {
 
                 let result: Option<String> = conn
                     .query_row(
-                        "SELECT blob_hash FROM tags WHERE reference = ?1",
+                        "SELECT b.hash
+                         FROM tags t
+                         JOIN blobs b ON t.blob_id = b.id
+                         WHERE t.reference = ?1",
                         rusqlite::params![reference],
                         |row| row.get(0),
                     )
