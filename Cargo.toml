@@ -40,6 +40,10 @@ rusqlite_migration = { version = "2.6.0", features = ["from-directory"] }
 hex = "0.4.3"
 sha2 = "0.11.0"
 
+[dev-dependencies]
+test-temp-dir = "0.7.0"
+temp-env = { version = "0.3.6", features = ["async_closure"] }
+
 [profile.release]
 codegen-units = 1
 lto = true

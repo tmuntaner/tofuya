@@ -1,7 +1,7 @@
 use crate::domain::tofu::models::{ConfigStateHost, Group, StateTarget, StateType};
+use crate::outbound::downloader::ArtifactSourceParseError;
 use async_trait::async_trait;
 use mockall::automock;
-use oci_client::ParseError;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -181,11 +181,11 @@ pub trait DownloaderPort: Send + Sync {
 #[derive(Error, Debug)]
 pub enum DownloaderPullError {
     #[error(transparent)]
-    PathParseError(#[from] ParseError),
-    #[error(transparent)]
     FSErrorError(#[from] std::io::Error),
     #[error(transparent)]
     DBError(#[from] DatabaseError),
+    #[error(transparent)]
+    PathParseError(#[from] ArtifactSourceParseError),
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
