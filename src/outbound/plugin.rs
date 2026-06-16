@@ -1,4 +1,4 @@
-use crate::domain::tofu::ports::{PluginGetStatesError, PluginPort};
+use crate::domain::tofu::ports::{DownloaderPort, PluginGetStatesError, PluginPort};
 use async_trait::async_trait;
 use axum::Router;
 use axum::body::Bytes;
@@ -8,7 +8,8 @@ use axum::routing::any;
 use reqwest::Client;
 use std::collections::HashMap;
 use std::net::TcpListener;
-use std::sync::Mutex;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use wasmtime::component::ResourceTable;
 use wasmtime::{
     Engine, Store,
@@ -25,18 +26,26 @@ wasmtime::component::bindgen!({
 });
 
 /// An object which manages WASM components and implements the [`PluginPort`] interface.
-pub struct PluginAdapter {
+pub struct PluginAdapter<DOWNLOAD>
+where
+    DOWNLOAD: DownloaderPort + Send + Sync + 'static,
+{
     engine: Engine,
     linker: Linker<PluginState>,
     components: Mutex<HashMap<String, Component>>,
+    downloader: Arc<DOWNLOAD>,
 }
 
-impl PluginAdapter {
+impl<DOWNLOAD> PluginAdapter<DOWNLOAD>
+where
+    DOWNLOAD: DownloaderPort + Send + Sync + 'static,
+{
     /// Creates a new [`PluginAdapter`]
-    pub fn new(engine: Engine, linker: Linker<PluginState>) -> Self {
+    pub fn new(engine: Engine, linker: Linker<PluginState>, downloader: DOWNLOAD) -> Self {
         let components = Mutex::new(HashMap::new());
 
         Self {
+            downloader: Arc::new(downloader),
             engine,
             linker,
             components,
@@ -51,18 +60,16 @@ impl PluginAdapter {
     /// # Errors
     ///
     /// This function will return an error if it has issues locking the Mutex.
-    fn get_component(&self, name: String) -> Result<Component, PluginGetStatesError> {
-        let mut lock = self
-            .components
-            .lock()
-            .map_err(|_| PluginGetStatesError::MutexLockError)?;
+    async fn get_component(&self, wasm_path: String) -> Result<Component, PluginGetStatesError> {
+        let mut lock = self.components.lock().await;
 
         // If the plugin already is loaded, return it.
         // If not, read the plugin file and create a new one.
-        let component = match lock.entry(name.clone()) {
+        let component = match lock.entry(wasm_path.clone()) {
             std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut().clone(),
             std::collections::hash_map::Entry::Vacant(entry) => {
-                let component = Component::from_file(&self.engine, name)?;
+                let path = self.downloader.pull(wasm_path).await?;
+                let component = Component::from_file(&self.engine, path)?;
 
                 entry.insert(component).clone()
             }
@@ -73,14 +80,17 @@ impl PluginAdapter {
 }
 
 #[async_trait]
-impl PluginPort for PluginAdapter {
+impl<DOWNLOAD> PluginPort for PluginAdapter<DOWNLOAD>
+where
+    DOWNLOAD: DownloaderPort + Send + Sync + 'static,
+{
     /// This function returns the states from a WASM component.
     async fn get_states(
         &self,
-        component_name: String,
+        wasm_path: String,
         config: HashMap<String, String>,
     ) -> Result<Vec<String>, PluginGetStatesError> {
-        let component = self.get_component(component_name)?;
+        let component = self.get_component(wasm_path).await?;
 
         // set up the WASI Context
         let mut wasi_builder = WasiCtxBuilder::new();

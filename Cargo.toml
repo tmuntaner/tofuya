@@ -32,6 +32,17 @@ wit-component = "0.251.0"
 wit-parser = "0.251.0"
 axum = "0.8.9"
 reqwest = { version = "0.13.3", features = ["native-tls"]}
+oci-client = "0.17.0"
+docker_credential = "1.4.0"
+include_dir = "0.7.4"
+rusqlite = { version = "0.40.1", features = ["bundled"]}
+rusqlite_migration = { version = "2.6.0", features = ["from-directory"] }
+hex = "0.4.3"
+sha2 = "0.11.0"
+
+[dev-dependencies]
+test-temp-dir = "0.7.0"
+temp-env = { version = "0.3.6", features = ["async_closure"] }
 
 [profile.release]
 codegen-units = 1

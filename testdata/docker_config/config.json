@@ -1,0 +1,10 @@
+{
+  "auths": {
+    "ghcr.io": {
+      "auth": "dGVzdHVzZXI6dGVzdHBhc3M="
+    },
+    "fake-registry.io": {
+      "identitytoken": "foothebar"
+    }
+  }
+}

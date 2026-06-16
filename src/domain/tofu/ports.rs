@@ -1,4 +1,5 @@
 use crate::domain::tofu::models::{ConfigStateHost, Group, StateTarget, StateType};
+use crate::outbound::downloader::ArtifactSourceParseError;
 use async_trait::async_trait;
 use mockall::automock;
 use serde::Deserialize;
@@ -148,7 +149,7 @@ pub enum TFStateParseError {
 pub trait PluginPort: Send + Sync {
     async fn get_states(
         &self,
-        component_name: String,
+        wasm_path: String,
         config: HashMap<String, String>,
     ) -> Result<Vec<String>, PluginGetStatesError>;
 }
@@ -159,10 +160,54 @@ pub enum PluginGetStatesError {
     WasmtimeError(#[from] wasmtime::Error),
     #[error(transparent)]
     FSError(#[from] std::io::Error),
-    #[error("failed to obtain lock")]
-    MutexLockError,
     #[error("failed to call plugin: {0}")]
     PluginCallError(String),
     #[error("failed to start proxy")]
     PluginProxyError,
+    #[error(transparent)]
+    DownloadError(#[from] DownloaderPullError),
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Downloader
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#[async_trait]
+#[automock]
+pub trait DownloaderPort: Send + Sync {
+    async fn pull(&self, path: String) -> Result<PathBuf, DownloaderPullError>;
+}
+
+#[derive(Error, Debug)]
+pub enum DownloaderPullError {
+    #[error(transparent)]
+    FSErrorError(#[from] std::io::Error),
+    #[error(transparent)]
+    DBError(#[from] DatabaseError),
+    #[error(transparent)]
+    PathParseError(#[from] ArtifactSourceParseError),
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Database
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#[async_trait]
+#[automock]
+pub trait DatabasePort: Send + Sync {
+    async fn save(&self, reference: String, size: i64, hash: String) -> Result<(), DatabaseError>;
+
+    async fn retrieve(&self, reference: String) -> Result<Option<String>, DatabaseError>;
+}
+
+#[derive(Error, Debug)]
+pub enum DatabaseError {
+    #[error(transparent)]
+    SqliteError(#[from] rusqlite::Error),
+    #[error("failed to get lock")]
+    LockError,
+    #[error("Background database task failed: {0}")]
+    TaskError(#[from] tokio::task::JoinError),
+    #[error(transparent)]
+    MigrationError(#[from] rusqlite_migration::Error),
 }

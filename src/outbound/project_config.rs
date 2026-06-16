@@ -57,7 +57,7 @@ where
     async fn get_plugin_states(
         &self,
         group: &StateGroup,
-        component_name: String,
+        wasm_path: String,
     ) -> Result<Vec<String>, ProjectConfigError> {
         let mut url = Url::from_str(group.base_address.as_str())?;
         url.set_path("");
@@ -79,10 +79,7 @@ where
             plugin_config.insert("TOFUYA_PLUGIN_CONFIG".to_string(), wasm_config);
         }
 
-        let states = self
-            .plugin
-            .get_states(component_name, plugin_config)
-            .await?;
+        let states = self.plugin.get_states(wasm_path, plugin_config).await?;
 
         Ok(states)
     }
