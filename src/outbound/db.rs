@@ -72,3 +72,36 @@ impl DatabasePort for DB {
         Ok(result)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use include_dir::{Dir, include_dir};
+    use test_temp_dir::test_temp_dir;
+
+    static MIGRATIONS_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/migrations");
+
+    // Define migrations. These are applied atomically.
+    static MIGRATIONS: LazyLock<Migrations<'static>> =
+        LazyLock::new(|| Migrations::from_directory(&MIGRATIONS_DIR).unwrap());
+
+    #[tokio::test]
+    async fn test_pull() {
+        let reference = String::from("ghcr.io/tmuntnaer/tofuya:latest");
+
+        let dir = test_temp_dir!();
+        let db_path = dir.as_path_untracked().to_path_buf().join("metadata.db");
+        let db = DB::new(db_path, &MIGRATIONS).unwrap();
+
+        let result = db.retrieve(reference.clone()).await.unwrap();
+        assert_eq!(None, result);
+
+        let result = db
+            .save(reference.clone(), 100, String::from("foobar"))
+            .await;
+        assert!(!result.is_err());
+
+        let result = db.retrieve(reference).await.unwrap().unwrap_or_default();
+        assert_eq!(String::from("foobar"), result);
+    }
+}
