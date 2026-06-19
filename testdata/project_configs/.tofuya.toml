@@ -4,3 +4,20 @@ base_address = "https://gitlab.home.arpa/api/v4/projects/42/terraform/state/"
 states = ["foo", "bar", "https://"]
 state_type = "opentofu"
 dir = "testdata/tofuya_pipeline"
+
+[[state_groups]]
+name = "tofuya-foo"
+base_address = "https://gitlab-foo.home.arpa/api/v4/projects/42/terraform/state/"
+ext_wasm_file = "ghcr.io/tmuntaner/tofuya/plugin-gitlab-states:0.1.0"
+state_type = "opentofu"
+dir = "testdata/tofuya_pipeline"
+[state_groups.wasm_config]
+gitlab_project = "foo/bar"
+regex_selector = "test.*-foo"
+
+[[state_groups]]
+name = "tofuya-bar"
+base_address = "https://gitlab-bar.home.arpa/api/v4/projects/42/terraform/state/"
+ext_wasm_file = "ghcr.io/tmuntaner/tofuya/plugin-gitlab-states:0.1.0"
+state_type = "opentofu"
+dir = "testdata/tofuya_pipeline"

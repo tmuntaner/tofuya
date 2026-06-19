@@ -100,6 +100,8 @@ pub enum ProjectGetTargetError {
     ParseError(#[from] StateAddressError),
     #[error(transparent)]
     ProjectErrorError(#[from] ProjectConfigError),
+    #[error("invalid directory")]
+    InvalidDirectory,
 }
 
 #[derive(Error, Debug)]

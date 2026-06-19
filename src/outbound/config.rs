@@ -103,7 +103,7 @@ pub mod tests {
             .join("config");
 
         let config = Config::new(Some(config_dir), None).unwrap();
-        assert_eq!(config.hosts.len(), 1);
+        assert_eq!(config.hosts.len(), 3);
         assert_eq!(config.hosts[0]._type, StateHostType::Gitlab);
         assert_eq!(config.hosts[0].host, "gitlab.home.arpa");
         assert_eq!(config.hosts[0].gitlab_username, Some(String::from("foo")));
