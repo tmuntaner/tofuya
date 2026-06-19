@@ -1,4 +1,5 @@
 use crate::domain::tofu::models::{Group, GroupState, StateTarget, StateType};
+use crate::domain::tofu::ports::ProjectGetTargetError::InvalidDirectory;
 use crate::domain::tofu::ports::{
     ConfigPort, PluginPort, ProjectConfigError, ProjectConfigPort, ProjectGetStateFromAddressError,
     ProjectGetTargetError, ProjectListGroupsError, StateAddressError,
@@ -162,7 +163,7 @@ where
                     .dir
                     .clone()
                     .map(PathBuf::from)
-                    .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+                    .ok_or_else(|| InvalidDirectory)?;
                 let state_type = state_group.state_type.clone();
 
                 return Ok(Some(StateTarget {
@@ -227,6 +228,8 @@ impl StateGroup {
 pub mod tests {
     use super::*;
     use crate::domain::tofu::ports::MockPluginPort;
+    use mockall::predicate;
+    use serde_json::json;
 
     #[test]
     fn test_config() {
@@ -239,7 +242,7 @@ pub mod tests {
 
         let base_config = config::Config::default();
         let config = ProjectConfig::new(config_dir, plugin, base_config).unwrap();
-        assert_eq!(config.config.state_groups.len(), 1);
+        assert_eq!(config.config.state_groups.len(), 3);
     }
 
     #[test]
@@ -254,6 +257,135 @@ pub mod tests {
         let base_config = config::Config::default();
         let config = ProjectConfig::new(config_dir, plugin, base_config).unwrap();
         assert_eq!(config.config.state_groups.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_config_get_target_plugin() {
+        let project_config = std::env::current_dir()
+            .unwrap()
+            .join("testdata")
+            .join("project_configs")
+            .join(".tofuya.toml");
+        let config_dir = std::env::current_dir()
+            .unwrap()
+            .join("testdata")
+            .join("config");
+
+        let base_config = config::Config::new(Some(config_dir), None).unwrap();
+
+        let mut plugin = MockPluginPort::new();
+        plugin
+            .expect_get_states()
+            .with(
+                predicate::eq(String::from(
+                    "ghcr.io/tmuntaner/tofuya/plugin-gitlab-states:0.1.0",
+                )),
+                predicate::function(|actual_config: &HashMap<String, String>| {
+                    if actual_config.get("STATE_HOST").map(|s| s.as_str())
+                        != Some("https://gitlab-foo.home.arpa/")
+                    {
+                        return false;
+                    }
+
+                    if actual_config.get("GITLAB_ACCESS_TOKEN").map(|s| s.as_str()) != Some("bar") {
+                        return false;
+                    }
+
+                    let json_matches = actual_config
+                        .get("TOFUYA_PLUGIN_CONFIG")
+                        .and_then(|s| serde_json::from_str::<Value>(s).ok())
+                        .map(|actual_json| {
+                            let expected_json = json!({
+                                "gitlab_project": "foo/bar",
+                                "regex_selector": "test.*-foo"
+                            });
+                            actual_json == expected_json
+                        })
+                        .unwrap_or(false);
+
+                    if !json_matches {
+                        return false;
+                    }
+
+                    true
+                }),
+            )
+            .once()
+            .once()
+            .returning(|_, _| {
+                let states = vec![String::from("bar")];
+                Box::pin(async { Ok(states) })
+            });
+
+        let config = ProjectConfig::new(project_config, plugin, base_config).unwrap();
+        let target = config
+            .get_target(String::from("tofuya-foo"), String::from("bar"))
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            target.url.as_str(),
+            "https://gitlab-foo.home.arpa/api/v4/projects/42/terraform/state/bar"
+        );
+        assert_eq!(StateType::OpenTofu, target.state_type);
+    }
+
+    #[tokio::test]
+    async fn test_config_get_target_plugin_no_config() {
+        let project_config = std::env::current_dir()
+            .unwrap()
+            .join("testdata")
+            .join("project_configs")
+            .join(".tofuya.toml");
+        let config_dir = std::env::current_dir()
+            .unwrap()
+            .join("testdata")
+            .join("config");
+
+        let base_config = config::Config::new(Some(config_dir), None).unwrap();
+
+        let mut plugin = MockPluginPort::new();
+        plugin
+            .expect_get_states()
+            .with(
+                predicate::eq(String::from(
+                    "ghcr.io/tmuntaner/tofuya/plugin-gitlab-states:0.1.0",
+                )),
+                predicate::function(|actual_config: &HashMap<String, String>| {
+                    if actual_config.get("STATE_HOST").map(|s| s.as_str())
+                        != Some("https://gitlab-bar.home.arpa/")
+                    {
+                        return false;
+                    }
+
+                    if actual_config.get("GITLAB_ACCESS_TOKEN").map(|s| s.as_str())
+                        != Some("foobar")
+                    {
+                        return false;
+                    }
+
+                    true
+                }),
+            )
+            .once()
+            .returning(|_, _| {
+                let states = vec![String::from("foobar")];
+                Box::pin(async { Ok(states) })
+            });
+
+        let config = ProjectConfig::new(project_config, plugin, base_config).unwrap();
+        let target = config
+            .get_target(String::from("tofuya-bar"), String::from("foobar"))
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            target.url.as_str(),
+            "https://gitlab-bar.home.arpa/api/v4/projects/42/terraform/state/foobar"
+        );
+        assert_eq!(StateType::OpenTofu, target.state_type);
     }
 
     #[tokio::test]
@@ -352,7 +484,7 @@ pub mod tests {
 
         let base_config = config::Config::default();
         let config = ProjectConfig::new(config_dir, plugin, base_config).unwrap();
-        assert_eq!(1, config.config.state_groups.len());
+        assert_eq!(3, config.config.state_groups.len());
         let target = config
             .get_target(String::from("tofuya-main"), String::from("foobar"))
             .await

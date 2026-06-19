@@ -3,3 +3,15 @@ type = "gitlab"
 host = "gitlab.home.arpa"
 gitlab_username = "foo"
 gitlab_access_token = "bar"
+
+[[hosts]]
+type = "gitlab"
+host = "gitlab-foo.home.arpa"
+gitlab_username = "foo"
+gitlab_access_token = "bar"
+
+[[hosts]]
+type = "gitlab"
+host = "gitlab-bar.home.arpa"
+gitlab_username = "foo"
+gitlab_access_token = "foobar"
