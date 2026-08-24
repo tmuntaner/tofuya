@@ -25,11 +25,11 @@ mockall = "0.14"
 dirs = "6.0"
 url = { version = "2.5.8", features = ["serde"]}
 comfy-table = "7.2.2"
-wasmtime = { version = "45.0.1", features = ["async"]}
+wasmtime = { version = "46.0.3", features = ["async"]}
 wasmtime-wasi = "45.0.1"
-wasmtime-wasi-http = "45.0.1"
-wit-component = "0.252.0"
-wit-parser = "0.252.0"
+wasmtime-wasi-http = "46.0.2"
+wit-component = "0.257.1"
+wit-parser = "0.257.1"
 axum = "0.8.9"
 reqwest = { version = "0.13.3", features = ["native-tls"]}
 oci-client = "0.17.0"
